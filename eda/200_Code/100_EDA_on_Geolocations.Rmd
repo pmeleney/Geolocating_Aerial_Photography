@@ -1,0 +1,457 @@
+---
+title: "EDA on Geolocated UCSB"
+author: "Will Frierson"
+date: "2020-01-12"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    code_folding: hide
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r setup, include=FALSE}
+# Note: If you aren't using RStudio, this markdown document can be rendered with
+# the following code:
+#
+# rmarkdown::render(
+#   input = file.path(folder.code, '100_EDA_on_Geolocations.Rmd'),
+#   output_dir = folder.markdown,
+#   knit_root_dir = getwd(),
+#   output_format = 'html_document',
+#   output_file =  '100_EDA_on_Geolocations.html'
+# )
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+
+options(knitr.table.format = "html") 
+```
+
+```{r core, echo=FALSE, warning=FALSE, message=FALSE}
+geolocations <- data.table::fread(
+  path.geolocations, sep = '|', quote = FALSE, stringsAsFactors = FALSE
+)
+
+# Flag rows that require requesting the scanned photo (i.e., the blank ones
+# for the Scan column)
+geolocations[
+  , ScanAvailable := ifelse(
+    Scan == '',
+    FALSE,
+    TRUE
+  )
+]
+
+# Cast BeginDate as Date type
+geolocations[
+  , Date := data.table::as.IDate(BeginDate)
+][
+  , `:=` (
+    Year = year(Date),
+    US_Ind = ifelse(
+      y %between% boundingLat.US & x %between% boundingLon.US,
+      1, 0
+    ),
+    CA_Ind = ifelse(
+      y %between% boundingLat.CA & x %between% boundingLon.CA,
+      1, 0
+    )
+  )
+]
+
+data.table::setnames(
+  geolocations,
+  c('x', 'y'),
+  c('lon', 'lat')
+)
+
+kable <- function(data, ...) {
+  knitr::kable(
+    data, align = rep('c', ncol(data)), ...
+  ) %>%
+    kableExtra::kable_styling(
+      bootstrap_options = "striped",
+      full_width = F,
+      position = 'center'
+    )
+}
+```
+
+# Geolocation Stats
+
+## How many images are geolocated?
+
+```{r geolocatedImageCounts}
+geolocations[
+  , .(
+    `Image Count` = .N
+  )
+  , keyby = .(`Image Available Ind` = ScanAvailable)
+] %>%
+  kable
+
+```
+
+## How many flights have any available geolocations?
+
+```{r geolocatedFlightCounts}
+geolocations[
+  , .(Flight_Geolocation_Ind = ifelse(sum(ScanAvailable) > 0, 1, 0))
+  , keyby = .(FlightID)
+][
+  , .(`Flight Count` = .N)
+  , keyby = .(`Flight Geolocation Ind` = Flight_Geolocation_Ind)
+] %>%
+  kable
+```
+
+## What portion of each flight's images are geolocated?
+
+```{r geolocatedFlightPcts}
+(geolocations[
+  , .(Image_Count = .N, Geolocation_Count = sum(ScanAvailable))
+  , keyby = .(FlightID)
+][
+  , .(
+    Pct_Geolocated_Images = ifelse(
+      Geolocation_Count == 0,
+      -1,
+      floor(Geolocation_Count / Image_Count * 100)
+    )
+  )
+] %>%
+  ggplot(
+    .,
+    aes(x = Pct_Geolocated_Images)
+  ) +
+  geom_bar() +
+  labs(x = "Portions of each flight's images that are geolocated") +
+  ylab('Flight Frequency') +
+  theme_bw()) %>%
+  ggplotly
+```
+
+__Note__: Going forward in this EDA, only the flights and images with available geolocations are considered.
+
+```{r keepGeolocatedImages}
+geolocations <- geolocations[(ScanAvailable)]
+```
+
+# Date Stats
+
+## How many distinct dates appear for each flight?
+
+```{r distinctDateCount}
+geolocations[
+  , .(
+    Distinct_Date_Count = data.table::uniqueN(Date)
+  )
+  , keyby = .(FlightID)
+][
+  , .(`Flight Frequency` = .N)
+  , keyby = .(`Distinct Date Count` = Distinct_Date_Count)
+] %>%
+  kable
+```
+
+## What dates are observed for flights with multiple dates?
+
+```{r multipleDateFlight}
+flights.multidate <- geolocations[
+  , .(
+    dateCount = data.table::uniqueN(Date)
+  )
+  , keyby = .(FlightID)
+][
+  dateCount > 1
+]
+
+flights.multidate[
+  geolocations
+  , on = .(FlightID)
+  , nomatch = FALSE
+][
+  , .(
+    Date.min = min(Date),
+    Date.max = max(Date)
+  )
+  , keyby = .(FlightID)
+][
+  , .(
+    FlightID, 
+    `Date (min)` = Date.min, 
+    `Date (max)`  = Date.max,
+    `Date Range` = Date.max -  Date.min + 1
+  )
+][
+  order(`Date Range`)
+] %>%
+  kable
+```
+
+__Note__: Going forward in this EDA, filtering out the `r nrow(flights.multidate)` flights identifed above, unless otherwise stated.
+
+```{r filteringMultipleDateFlights}
+geolocations.singledate_flights <- geolocations[
+  !flights.multidate
+  , on = .(FlightID)
+]
+```
+
+# Metrics by Time
+
+## How many images were recorded by year?
+
+```{r imageCountByYear}
+(geolocations.singledate_flights[
+  , .(Image_Count = .N)
+  , keyby = .(Year)
+] %>% 
+  ggplot(
+    .,
+    aes(x = Year, y = Image_Count)
+  ) +
+  geom_bar(stat = 'identity') +
+  ylab('Image Count') +
+  theme_bw()) %>%
+  ggplotly
+```
+
+## How did the average number of images per flight vary by year?
+
+```{r avgImtCntByYear}
+(geolocations.singledate_flights[
+  , .(Image_Count = .N)
+  , keyby = .(FlightID, Year)
+][
+  , .(
+    Image_Count.mean = mean(Image_Count)
+  )
+  , keyby = .(Year)
+] %>% 
+  ggplot(
+    .,
+    aes(x = Year, y = Image_Count.mean)
+  ) +
+  geom_bar(stat = 'identity') +
+  ylab('Average Number of Images per Flights') +
+  theme_bw()) %>%
+  ggplotly
+```
+
+## During what quarters were images recorded?
+
+```{r quarterCounts}
+geolocations.singledate_flights[
+  , .(
+    `Quarter Count` = .N
+  )
+  , keyby = .(Quarter = quarter(Date))
+] %>%
+  kable
+```
+
+## Did proportion of images by quarter change over time?
+
+```{r proportionImagesByQuarterOverTime}
+year.min <- geolocations.singledate_flights[, min(Year)]
+year.max <- geolocations.singledate_flights[, max(Year)]
+year.levels <- seq(
+  from = year.min,
+  to = year.max,
+  by = 1
+)
+
+(geolocations.singledate_flights[
+  , .(
+    Quarter = factor(quarter(Date), levels = 1:4),
+    Year = factor(Year, levels = year.levels),
+    Date
+  )
+] %>%
+  ggplot(
+    .,
+    aes(x = Year, fill = Quarter)
+  ) +
+  geom_bar(position = 'fill') +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_discrete(drop=FALSE) + 
+  scale_x_discrete(drop=FALSE) +
+  theme_bw()) %>%
+  ggplotly %>%
+  plotly::layout(
+    xaxis = list(
+      tickangle = 90
+    ),
+    legend = list(
+      orientation = "h",
+      xanchor = "center",
+      x = 0.575,
+      y = -0.2
+    )
+  )
+```
+
+# Flight Metadata
+
+## How many images are there per flight?
+
+```{r imagesPerFlights}
+geolocations.image_count <- geolocations.singledate_flights[
+  , .(
+    Image_Count = .N
+  )
+  , keyby = .(FlightID)
+][
+  , .(
+    Frequency = .N
+  )
+  , keyby = .(Image_Count)
+]
+
+(geolocations.image_count %>%
+  ggplot(
+    .,
+    aes(x = Image_Count, y = Frequency)
+  ) +
+  geom_bar(stat = 'identity') +
+  xlab('Image Count') +
+  xlim(c(0, 500)) +
+  theme_bw()) %>%
+  ggplotly
+```
+
+# Image Scale
+
+## What are the most frequent image scales?
+
+```{r mostFreqImageScales}
+geolocations.scale_freq <- geolocations.singledate_flights[
+  , .(Scale_Count = .N)
+  , keyby = .(Scale)
+][order(-Scale_Count)]
+
+(geolocations.scale_freq[
+  Scale_Count > 100
+  , .(
+    Scale = factor(Scale, levels = geolocations.scale_freq[['Scale']]),
+    Scale_Count
+  )
+] %>%
+  ggplot(
+      .,
+      aes(x = Scale, y = Scale_Count)
+  ) +
+  geom_bar(stat = 'identity') +
+  ylab('Scale Count') +
+  theme_bw()) %>%
+  ggplotly %>%
+  plotly::layout(
+    xaxis = list(
+      tickangle = 90
+    )
+  )
+```
+
+## What is the most frequent image scale by year?
+
+```{r mostFreqImageScalesByYear}
+geolocations.singledate_flights[
+  , .(Scale_Count = .N)
+  , keyby = .(Scale, Year)
+][
+  order(Year, -Scale_Count)
+  , freq_rank := 1:.N
+  , by = .(Year)
+][
+  freq_rank == 1
+  , .(Year, `Most Frequent Scale` = Scale)
+][
+  order(Year)
+] %>%
+  kable
+```
+
+# Selected Flights
+
+## Which flights are between 1952-1965, with at least 500 images, and 1:20,000 in scale?
+
+```{r selectedFlights}
+flights.selected <- geolocations.singledate_flights[
+    Year %in% 1952:1965
+    , .(
+      Image_Count = .N
+    )
+    , keyby = .(FlightID, Year, Scale)
+][
+    Image_Count > 500 & Scale == 20000
+    , .(
+      FlightID,
+      Year,
+      Scale,
+      Image_Count,
+      Capped_Image_Count = ifelse(
+          Image_Count > 1500,
+          1500,
+          500
+      )
+    )
+]
+
+flights.selected[
+    order(-Image_Count)
+] %>%
+  kable
+```
+
+
+## Where are the flights between 1952-1965, with at least 500 images, and 1:20,000 in scale?
+
+```{r leafltPlot}
+geolocations.selected <- geolocations.singledate_flights[
+  flights.selected
+  , on = .(FlightID)
+  , nomatch = FALSE
+]
+
+flightSpatialPolygonDataFrame <- createFlightSpatialPolygonDataFrame(
+  geolocations.selected
+)
+
+flightPalette <- leaflet::colorFactor(
+  colorRampPalette(
+    RColorBrewer::brewer.pal(11,'Spectral')
+  )(nrow(flights.selected)), 
+  factor(flights.selected[, FlightID])
+)
+
+leaflet(
+  flightSpatialPolygonDataFrame,
+  options = leafletOptions(preferCanvas = TRUE)
+) %>%
+  addProviderTiles(
+    providers$CartoDB.PositronNoLabels,
+    group = 'CartoDB.NoLabels',
+    options = providerTileOptions(
+      updateWhenZooming = FALSE,
+      updateWhenIdle = TRUE
+    )
+  ) %>%
+  addPolygons(
+    color = ~flightPalette(flight),
+    label = ~flightYear
+  )
+
+```
+

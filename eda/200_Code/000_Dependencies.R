@@ -1,0 +1,8 @@
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(leaflet)
+library(plotly)
+library(raster)
+library(rgdal)
+library(sp)
