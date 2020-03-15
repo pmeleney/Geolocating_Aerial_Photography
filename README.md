@@ -11,14 +11,15 @@ To run the demo script call the function with any two consecutive images found i
 
 The purpose of this Jupyter Notebook is to geolocate images of unknown location using Topography Reconstruction.  This process involves using the COLMAP tool, which is available here: https://colmap.github.io/.
 
-Running the Demo:
+### Running the Demo:
+
 Demonstration data is available under colmap_reconstructions/btm-1954.  The files in this repository can be entered into the TopoCompare.topo_compare() function as shown in the Demo section of the notebook.  Running this demonstration should only take a few minutes as it only searches a small portion of California.  Results (df_min) should be as follows:
 
-       | x_pixels | y_pixels | min_value | rotation | best_fit_lat | best_fit_long |
--------|----------|----------|-----------|----------|--------------|---------------|
-160148 |   141    |   208    |   707.67  |     3.18 |     34.66    |    -119.72    |
+          -   | x_pixels | y_pixels | min_value | rotation | best_fit_lat | best_fit_long |
+       -------|----------|----------|-----------|----------|--------------|---------------|
+       160148 |   141    |   208    |   707.67  |     3.18 |     34.66    |    -119.72    |
 
-Running Against New Data
+### Running Against New Data
 
 1) First select approximately 72 overlapping images from the flight you wish to identify.  These images should be in a more or less rectangular pattern.
 
