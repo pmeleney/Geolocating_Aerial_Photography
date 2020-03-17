@@ -48,3 +48,21 @@ The git repository is not large enough to store all of the training images neede
 
 The training script is capable of running on multiple GPU’s and batching images really helps to speed things up. Using checkpoints will allow you to resume training from your last checkpoint if interrupted. This can be very useful, especially when training cycle GANs as they take quite a bit longer than pix2pix GANs. The models are designed to be trained on either Nvidia GPUs or a CPU but, we have not tried training on CPUs. Even though the GANs were not useful for this project, they are facinating and are worth further investigation.
 
+To recap: steps to train and test a pix2pix GAN
+
+0) Run the requirements.txt file
+
+1) Create directories A and B, each with subdirectories train, test and val
+
+2) Put input images in the A directories and the target images in the B directories
+- Names of the paired images in A and B must match
+- Images in A and B must be same dimensions and file types
+
+3) Run the combine_A_and_B.py script which will create new train, test and val directories with the paired training and testing images
+
+4) Run the train.py script
+- Make sure you are choosing the AtoB direction
+
+5) Run the test.py script
+- Generated images as well as the input and target images will all be in a new results directory
+
